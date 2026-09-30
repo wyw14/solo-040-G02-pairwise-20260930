@@ -16,35 +16,38 @@ import (
 	"github.com/wyw14/cry-96/internal/safety"
 	"github.com/wyw14/cry-96/internal/schedule"
 	"github.com/wyw14/cry-96/internal/signal"
+	"github.com/wyw14/cry-96/internal/waterway"
 )
 
 // Runtime contains the long-lived component graph used by HTTP handlers.
 type Runtime struct {
-	Store           journal.Store
-	Recorder        *journal.Recorder
-	GateState       *gate.State
-	GateCommands    *gate.Commands
-	Gates           *gate.Controller
-	SignalStore     *signal.Store
-	SignalPublisher *signal.Publisher
-	Signals         *signal.Service
-	AdmissionQueue  *admission.Queue
-	Admission       *admission.Service
-	Planner         *schedule.Planner
-	Schedule        *schedule.Service
-	Hydraulics      *hydraulics.Controller
-	Interlocks      *interlock.Coordinator
-	Cycles          *cycle.Coordinator
-	CycleService    *cycle.Service
-	Leases          *lease.Service
-	LeaseSweeper    *lease.Sweeper
-	Safety          *safety.Service
-	Snapshot        *monitor.Snapshot
-	Incidents       *monitor.IncidentReview
-	Health          *monitor.HealthRegistry
-	Recovery        *cycle.Recovery
-	Chambers        []string
-	Now             func() time.Time
+	Store            journal.Store
+	Recorder         *journal.Recorder
+	GateState        *gate.State
+	GateCommands     *gate.Commands
+	Gates            *gate.Controller
+	SignalStore      *signal.Store
+	SignalPublisher  *signal.Publisher
+	Signals          *signal.Service
+	AdmissionQueue   *admission.Queue
+	Admission        *admission.Service
+	Planner          *schedule.Planner
+	Schedule         *schedule.Service
+	Hydraulics       *hydraulics.Controller
+	Interlocks       *interlock.Coordinator
+	Cycles           *cycle.Coordinator
+	CycleService     *cycle.Service
+	Leases           *lease.Service
+	LeaseSweeper     *lease.Sweeper
+	Safety           *safety.Service
+	Waterway         *waterway.Service
+	WaterwayRecovery *waterway.Recovery
+	Snapshot         *monitor.Snapshot
+	Incidents        *monitor.IncidentReview
+	Health           *monitor.HealthRegistry
+	Recovery         *cycle.Recovery
+	Chambers         []string
+	Now              func() time.Time
 }
 
 func NewRuntime(ctx context.Context, dataDirectory string) (*Runtime, error) {
@@ -89,12 +92,19 @@ func NewRuntime(ctx context.Context, dataDirectory string) (*Runtime, error) {
 	)
 	cycleCoordinator := cycle.NewCoordinator(gateController, hydraulicsController, recorder, now)
 	cycleService := cycle.NewService(cycleCoordinator, admissionService)
+	waterwayArbiter := waterway.NewArbiter(now)
+	waterwayService := waterway.NewService(waterwayArbiter, recorder, now)
+	cycleCoordinator.BindWaterwayReleaser(waterwayService)
 	safetyCoordinator = safety.NewCoordinator(gateCommands, barrier, recorder, now)
 	safetyService := safety.NewService(safetyCoordinator, cycleCoordinator)
 	signalService.BindTransitLookup(cycleCoordinator)
 	replayer := journal.NewReplayer(store)
 	recovery := cycle.NewRecovery(replayer, cycleCoordinator)
 	if _, err := recovery.RestoreAll(ctx); err != nil {
+		return nil, err
+	}
+	waterwayRecovery := waterway.NewRecovery(store, waterwayService)
+	if _, err := waterwayRecovery.RestoreAll(ctx); err != nil {
 		return nil, err
 	}
 	health := monitor.NewHealthRegistry()
@@ -114,6 +124,7 @@ func NewRuntime(ctx context.Context, dataDirectory string) (*Runtime, error) {
 		Planner: planner, Schedule: scheduleService, Hydraulics: hydraulicsController,
 		Interlocks: interlockCoordinator, Cycles: cycleCoordinator, CycleService: cycleService,
 		Leases: leaseService, LeaseSweeper: leaseSweeper, Safety: safetyService,
+		Waterway: waterwayService, WaterwayRecovery: waterwayRecovery,
 		Snapshot:  monitor.NewSnapshot(cycleCoordinator, gateState, admissionService, signalService, safetyService, now),
 		Incidents: monitor.NewIncidentReview(store), Health: health, Recovery: recovery,
 		Chambers: chambers, Now: now,

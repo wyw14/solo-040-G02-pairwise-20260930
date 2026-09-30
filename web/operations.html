@@ -13,6 +13,12 @@
     </form></section>
     <section class="panel"><h2>Current transit</h2><div class="metrics"><div class="metric">Chamber<strong id="metric-chamber">-</strong></div><div class="metric">Stage<strong id="metric-stage">-</strong></div><div class="metric">Cycle<strong id="metric-cycle">-</strong></div></div></section>
     <section class="panel wide"><h2>Active plans</h2><table><thead><tr><th>Chamber</th><th>Plan</th><th>Direction</th><th>Vessels</th><th>Created</th></tr></thead><tbody id="plans"></tbody></table></section>
+    <section class="panel wide"><h2>Shared pilotage water</h2><div class="muted">Directional clearance arbitration across chambers — opposed headings cannot be released at the same time.</div>
+      <form id="waterway-form" style="margin:12px 0"><div class="form-row"><div><label for="ww-chamber">Chamber</label><select id="ww-chamber"><option>chamber-1</option><option>chamber-2</option></select></div><div><label for="ww-direction">Heading</label><select id="ww-direction"><option value="upstream">Upstream</option><option value="downstream">Downstream</option></select></div><div><label>&nbsp;</label><button type="submit">Request clearance</button></div></div><div class="message" id="waterway-message"></div></form>
+      <table><thead><tr><th>Waterway</th><th>Occupying convoy</th><th>Chamber</th><th>Heading</th><th>Cycle</th><th>Granted</th><th></th></tr></thead><tbody id="waterway-occupants"></tbody></table>
+      <h3 style="margin:16px 0 6px">Waiting / blocked</h3>
+      <table><thead><tr><th>Waterway</th><th>Requested by</th><th>Heading</th><th>Blocked by</th><th>Blocker heading</th><th>Reason</th></tr></thead><tbody id="waterway-waitlist"></tbody></table>
+    </section>
   </div>
 </main><script src="/assets/app.js"></script><script src="/assets/operations.js"></script>
 </body></html>

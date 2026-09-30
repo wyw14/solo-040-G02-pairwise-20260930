@@ -28,6 +28,7 @@ func Router(runtime *Runtime, webDirectory string) http.Handler {
 	router.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(webDirectory))))
 	router.Route("/api", func(api chi.Router) {
 		api.Get("/chambers", chambersHandler(runtime))
+		api.Get("/waterway", waterwayHandler(runtime))
 		api.Get("/interlocks", interlocksHandler(runtime))
 		api.Get("/incidents", incidentsHandler(runtime))
 		api.Get("/plans", plansHandler(runtime))
@@ -44,6 +45,8 @@ func Router(runtime *Runtime, webDirectory string) http.Handler {
 		api.Post("/chambers/{chamberID}/equipment/pending", equipmentPendingHandler(runtime))
 		api.Post("/chambers/{chamberID}/equipment/settled", equipmentSettledHandler(runtime))
 		api.Post("/chambers/{chamberID}/signals/handoff", signalHandoffHandler(runtime))
+		api.Post("/chambers/{chamberID}/waterway/request", requestWaterwayHandler(runtime))
+		api.Post("/chambers/{chamberID}/waterway/release", releaseWaterwayHandler(runtime))
 		api.Post("/leases", assignLeaseHandler(runtime))
 		api.Get("/leases/expired", expiredLeasesHandler(runtime))
 		api.Post("/leases/{vesselID}/heartbeat", heartbeatHandler(runtime))

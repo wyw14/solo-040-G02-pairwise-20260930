@@ -22,6 +22,8 @@ const (
 	EventEmergencyStarted EventType = "emergency.started"
 	EventEmergencySettled EventType = "emergency.settled"
 	EventReplayWarning    EventType = "replay.warning"
+	EventWaterwayGranted  EventType = "waterway.granted"
+	EventWaterwayReleased EventType = "waterway.released"
 )
 
 type Event struct {

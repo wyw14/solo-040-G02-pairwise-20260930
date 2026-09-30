@@ -11,7 +11,13 @@ import (
 	"github.com/wyw14/cry-96/internal/hydraulics"
 	"github.com/wyw14/cry-96/internal/journal"
 	"github.com/wyw14/cry-96/internal/model"
+	"github.com/wyw14/cry-96/internal/waterway"
 )
+
+// WaterwayReleaser safely frees shared-water occupancy when a transit ends.
+type WaterwayReleaser interface {
+	ReleaseCycle(ctx context.Context, chamberID string, cycleID uuid.UUID, cause waterway.ReleaseCause) ([]waterway.ReleaseRecord, error)
+}
 
 // Coordinator is the authoritative owner of active transit generations.
 type Coordinator struct {
@@ -21,6 +27,7 @@ type Coordinator struct {
 	gates       *gate.Controller
 	hydraulics  *hydraulics.Controller
 	recorder    *journal.Recorder
+	waterway    WaterwayReleaser
 	now         func() time.Time
 }
 
@@ -32,6 +39,20 @@ func NewCoordinator(gates *gate.Controller, hydraulicsController *hydraulics.Con
 		current: make(map[string]model.TransitCycle), generations: make(map[string]uint64),
 		gates: gates, hydraulics: hydraulicsController, recorder: recorder, now: now,
 	}
+}
+
+// BindWaterwayReleaser wires the shared-water arbiter so terminal transitions
+// safely release occupancy. It mirrors the late-binding used by signal handoff.
+func (c *Coordinator) BindWaterwayReleaser(releaser WaterwayReleaser) { c.waterway = releaser }
+
+// releaseWaterway is best-effort after the terminal event is durable; a
+// release failure must not hide the recorded transition.
+func (c *Coordinator) releaseWaterway(ctx context.Context, chamberID string, cycleValue model.TransitCycle, cause waterway.ReleaseCause) error {
+	if c.waterway == nil {
+		return nil
+	}
+	_, err := c.waterway.ReleaseCycle(ctx, chamberID, cycleValue.ID, cause)
+	return err
 }
 
 func (c *Coordinator) Start(ctx context.Context, plan model.ConvoyPlan) (model.TransitCycle, error) {
@@ -75,8 +96,17 @@ func (c *Coordinator) Cancel(ctx context.Context, chamberID, reason string) (mod
 	}
 	c.current[chamberID] = cycleValue
 	c.mu.Unlock()
-	_, err := c.recorder.Record(ctx, chamberID, model.EventCycleAdvanced, cycleValue.ID, cycleValue.Generation, cycleValue)
-	return cycleValue, err
+	if _, err := c.recorder.Record(ctx, chamberID, model.EventCycleAdvanced, cycleValue.ID, cycleValue.Generation, cycleValue); err != nil {
+		return cycleValue, err
+	}
+	cause := waterway.CauseCancelled
+	if terminalStage(reason) == model.StageEmergency {
+		cause = waterway.CauseEmergency
+	}
+	if err := c.releaseWaterway(ctx, chamberID, cycleValue, cause); err != nil {
+		return cycleValue, err
+	}
+	return cycleValue, nil
 }
 
 func (c *Coordinator) ApplyGateAck(ctx context.Context, ack model.DeviceAck) error {
@@ -129,10 +159,18 @@ func (c *Coordinator) ApplySignalHandoff(ctx context.Context, cycleID uuid.UUID,
 		return err
 	}
 	cycleValue.UpdatedAt = c.now().UTC()
+	completed := cycleValue.Stage == model.StageCompleted
 	c.current[chamberID] = cycleValue
 	c.mu.Unlock()
-	_, err := c.recorder.Record(ctx, chamberID, model.EventCycleAdvanced, cycleValue.ID, generation, cycleValue)
-	return err
+	if _, err := c.recorder.Record(ctx, chamberID, model.EventCycleAdvanced, cycleValue.ID, generation, cycleValue); err != nil {
+		return err
+	}
+	if completed {
+		if err := c.releaseWaterway(ctx, chamberID, cycleValue, waterway.CauseDeparted); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Coordinator) Restore(cycleValue model.TransitCycle) {
